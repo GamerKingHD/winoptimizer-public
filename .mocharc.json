@@ -1,0 +1,4 @@
+{
+  "spec": ["e2e/tauri.spec.js"],
+  "timeout": 120000
+}

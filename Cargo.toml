@@ -1,0 +1,36 @@
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
+# Faster incremental dev builds: places debug info in separate .pdb files
+# instead of embedding in the .exe, speeding up the link step on Windows.
+[profile.dev]
+split-debuginfo = "unpacked"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
+
+# Fast release-ish build: optimization without expensive LTO/link step.
+# Use for quick testing of optimized code. ~2-5x faster to compile than full release.
+# incremental=true enables per-module recompilation — changing one .rs file only
+# rebuilds that module, not the whole crate (adds ~1-2% binary size).
+[profile.release-fast]
+inherits = "release"
+opt-level = 2
+lto = false
+strip = false
+codegen-units = 16
+incremental = true
+panic = "abort"
+
+# Debug build with some optimization: debuggable but not glacial.
+# Good for profiling or when debug builds are too slow at runtime.
+[profile.dev-opt]
+inherits = "dev"
+opt-level = 1
+strip = false
+panic = "abort"

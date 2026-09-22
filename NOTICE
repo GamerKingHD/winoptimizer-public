@@ -1,0 +1,55 @@
+WinOptimizer Free
+Copyright (c) 2026 WinOptimizer contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party notices
+--------------------------------------------------------------------------------
+
+This distribution includes third-party open-source software. The primary
+components and their licenses are listed below. Version numbers are resolved
+from the locked dependency graph at build time; see Cargo.lock and
+package-lock.json for the exact resolved versions.
+
+Rust crates
+  - Tauri and tauri-* plugins ............ Apache-2.0 OR MIT
+  - serde, serde_json .................... MIT OR Apache-2.0
+  - windows, windows-result .............. MIT OR Apache-2.0
+  - rusqlite (SQLite bundled) ............ MIT; SQLite is public domain
+  - chrono .............................. MIT OR Apache-2.0
+  - blake3 .............................. CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception
+  - ed25519-dalek ....................... BSD-3-Clause
+  - memmap2 ............................. MIT OR Apache-2.0
+  - uuid ................................ Apache-2.0 OR MIT
+  - walkdir ............................. Unlicense OR MIT
+  - jwalk ............................... MIT
+  - regex ............................... MIT OR Apache-2.0
+  - sysinfo ............................. MIT
+  - thiserror ........................... MIT OR Apache-2.0
+  - log ................................. MIT OR Apache-2.0
+  - env_logger .......................... MIT OR Apache-2.0
+  - rayon ............................... MIT OR Apache-2.0
+  - tokio ............................... MIT
+
+npm packages
+  - @tauri-apps/* ....................... Apache-2.0 OR MIT
+  - vue, vue-router, pinia .............. MIT
+  - Vite, Vitest, Mocha, chai,
+    happy-dom, @vue/test-utils .......... MIT
+  - TypeScript .......................... Apache-2.0
+  - @playwright/test .................... Apache-2.0
+  - lightningcss (build-time only) ...... MPL-2.0
+
+Build tooling (not redistributed)
+  - WiX Toolset v3 (used to produce the optional MSI) is provided under the
+    Microsoft Reciprocal License (MS-RL) and is downloaded at build time.
+
+Vendored sources
+  - tweaks-ideas/christitus is a vendored copy of ChrisTitusTech/winutil,
+    Copyright (c) 2022 CT Tech Group LLC, licensed under the MIT License.
+    Its upstream LICENSE is retained alongside the vendored sources.
+
+MPL-2.0 components (lightningcss, and historically symphonia in the commercial
+build) are used unmodified; their source is available from their respective
+upstream projects.

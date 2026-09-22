@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+target/
+.build/
+
+# Rust
+*.pdb
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+
+# Test results
+test-results/
+playwright-report/
+e2e/screenshots/
+audit-screenshots/
+
+# Installer output
+installer/
+wix/
+release/
+output/
+
+# Cache
+.cache/
+.sccache/
+*.sccache/
+
+# Generated
+docs/generated/
+src-tauri/gen/
+
+# Environment
+.env
+.env.local

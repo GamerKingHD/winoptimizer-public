@@ -1,0 +1,17 @@
+{
+  "edition": "community",
+  "generatedFrom": "private",
+  "generatedAt": "2026-09-22T07:05:18.769Z",
+  "sourceCommit": "f9d5aa473251806a0f9b61928aab771f7c660f7b",
+  "sourceTreeHash": "41e4a15ee273e15e44ba0443ab274dc7d018b9a5",
+  "sourceDirty": false,
+  "version": "1.0.0",
+  "files": 551,
+  "counts": {
+    "copied": 545,
+    "overlay": 0,
+    "regionStripped": 20,
+    "generated": 6
+  },
+  "note": "Generated tree. Do not develop here. Edit the private repository and re-export."
+}

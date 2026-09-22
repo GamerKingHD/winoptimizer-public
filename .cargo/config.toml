@@ -1,0 +1,4 @@
+# WinOptimizer Cargo configuration
+
+[alias]
+check-wino = "check --manifest-path src-tauri/Cargo.toml"
