@@ -803,6 +803,42 @@ fn validation(message: impl Into<String>) -> OperationError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn preset_definitions_are_well_formed() {
+        let definitions = definitions();
+        assert!(!definitions.is_empty());
+        let mut preset_ids = BTreeSet::new();
+        for definition in &definitions {
+            assert!(
+                preset_ids.insert(definition.id.clone()),
+                "duplicate preset {}",
+                definition.id
+            );
+            assert!(
+                !definition.target_ids.is_empty(),
+                "{} has no targets",
+                definition.id
+            );
+            let mut seen = BTreeSet::new();
+            for target in &definition.target_ids {
+                let (kind, id) = target
+                    .split_once(':')
+                    .unwrap_or_else(|| panic!("{} has malformed target {target}", definition.id));
+                assert!(
+                    ["privacy", "performance", "customization"].contains(&kind),
+                    "{} targets unknown kind {kind}",
+                    definition.id
+                );
+                assert!(!id.is_empty(), "{} has an empty target id", definition.id);
+                assert!(
+                    seen.insert(target.clone()),
+                    "{} repeats {target}",
+                    definition.id
+                );
+            }
+        }
+    }
+
     fn child_plan(experimental: bool) -> OperationPlan {
         child_plan_with("fixture", experimental)
     }

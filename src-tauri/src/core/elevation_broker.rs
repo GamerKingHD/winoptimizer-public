@@ -15,6 +15,9 @@ use std::time::Duration as StdDuration;
 
 pub const BROKER_PROTOCOL_VERSION: u16 = 1;
 pub const BROKER_LIFETIME_SECONDS: i64 = 10 * 60;
+/// Every broker endpoint is a local named pipe with this prefix followed by a
+/// random UUID. Consumers of a persisted endpoint validate against it.
+pub const ENDPOINT_PREFIX: &str = r"\\.\pipe\WinOptimizer-";
 
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
@@ -207,7 +210,7 @@ impl BrokerSession {
         }
 
         Ok(Self {
-            endpoint: format!(r"\\.\pipe\WinOptimizer-{}", uuid::Uuid::new_v4()),
+            endpoint: format!("{ENDPOINT_PREFIX}{}", uuid::Uuid::new_v4()),
             session_id: uuid::Uuid::new_v4().to_string(),
             nonce: nonce.to_string(),
             operation_id: operation_id.to_string(),

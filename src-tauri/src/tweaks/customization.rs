@@ -1,5 +1,6 @@
 //! Low-risk Windows usability and Explorer customization tweaks.
 
+use super::registry_ops::{self as ops, MissingKey};
 use crate::core::system_tweak_operation::{TweakPhysicalResource, TweakPhysicalState};
 use serde::{Deserialize, Serialize};
 
@@ -190,68 +191,11 @@ pub fn restore_state(tweak_id: &str, state: &TweakPhysicalState) -> Result<(), S
 }
 
 fn capture_registry_resource(full_key: &str, value_name: &str) -> TweakPhysicalResource {
-    let (hive, path) = split_hive(full_key);
-    let hive = match hive {
-        "HKLM" => windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-        "HKCU" => windows::Win32::System::Registry::HKEY_CURRENT_USER,
-        _ => unreachable!(),
-    };
-    use crate::core::registry_helpers;
-    use windows::Win32::System::Registry::RegCloseKey;
-    unsafe {
-        if let Some(key) = registry_helpers::open_key_read(hive, &path) {
-            let value = registry_helpers::read_reg_dword(key, value_name);
-            let raw = registry_helpers::read_reg_raw(key, value_name);
-            let _ = RegCloseKey(key);
-            return TweakPhysicalResource::RegistryDword {
-                full_key: full_key.into(),
-                value_name: value_name.into(),
-                key_existed: true,
-                value_existed: raw.is_some(),
-                value,
-                registry_type: raw.as_ref().map(|(registry_type, _)| *registry_type),
-                raw_value: raw.map(|(_, raw_value)| raw_value),
-            };
-        }
-    }
-    TweakPhysicalResource::RegistryDword {
-        full_key: full_key.into(),
-        value_name: value_name.into(),
-        key_existed: false,
-        value_existed: false,
-        value: None,
-        registry_type: None,
-        raw_value: None,
-    }
+    ops::capture_resource(full_key, value_name)
 }
 
 fn restore_registry_resource(resource: &TweakPhysicalResource) -> Result<(), String> {
-    let TweakPhysicalResource::RegistryDword {
-        full_key,
-        value_name,
-        key_existed,
-        value_existed,
-        value,
-        registry_type,
-        raw_value,
-    } = resource
-    else {
-        return Err("Expected registry resource".into());
-    };
-    if *value_existed {
-        if let (Some(registry_type), Some(raw_value)) = (registry_type, raw_value) {
-            set_raw(full_key, value_name, *registry_type, raw_value)
-        } else {
-            set_dword(full_key, value_name, value.unwrap_or_default())
-        }
-    } else {
-        if *key_existed {
-            delete_value(full_key, value_name)?;
-        } else {
-            delete_key(full_key)?;
-        }
-        Ok(())
-    }
+    ops::restore_resource(resource, MissingKey::Ignore)
 }
 
 fn read_dword(full_key: &str, value_name: &str) -> Option<u32> {
@@ -272,127 +216,52 @@ fn read_dword(full_key: &str, value_name: &str) -> Option<u32> {
 }
 
 fn set_dword(full_key: &str, value_name: &str, value: u32) -> Result<(), String> {
-    let (hive, path) = split_hive(full_key);
-    let hive = match hive {
-        "HKLM" => windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-        "HKCU" => windows::Win32::System::Registry::HKEY_CURRENT_USER,
-        _ => return Err(format!("Unknown registry hive in {full_key}")),
-    };
-    use windows::core::HSTRING;
-    use windows::Win32::System::Registry::*;
-    unsafe {
-        let mut key = std::mem::zeroed();
-        let result = RegCreateKeyExW(
-            hive,
-            &HSTRING::from(&path),
-            None,
-            None,
-            REG_OPTION_NON_VOLATILE,
-            KEY_SET_VALUE,
-            None,
-            &mut key,
-            None,
-        );
-        if result.is_err() {
-            let _ = RegCloseKey(key);
-            return Err(format!("Failed to open {full_key}: {result:?}"));
-        }
-        let bytes = value.to_ne_bytes();
-        let result = RegSetValueExW(
-            key,
-            &HSTRING::from(value_name),
-            None,
-            REG_DWORD,
-            Some(&bytes),
-        );
-        let _ = RegCloseKey(key);
-        if result.is_err() {
-            return Err(format!(
-                "Failed to set {value_name} at {full_key}: {result:?}"
-            ));
-        }
-        Ok(())
-    }
-}
-
-fn set_raw(
-    full_key: &str,
-    value_name: &str,
-    registry_type: u32,
-    raw_value: &[u8],
-) -> Result<(), String> {
-    let (hive_str, path) = split_hive(full_key);
-    let hive = match hive_str {
-        "HKLM" => windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-        "HKCU" => windows::Win32::System::Registry::HKEY_CURRENT_USER,
-        _ => return Err(format!("Unknown registry hive in {full_key}")),
-    };
-    unsafe {
-        let key = crate::core::registry_helpers::create_key_write(hive, &path)
-            .ok_or_else(|| format!("Failed to open {full_key}"))?;
-        let result =
-            crate::core::registry_helpers::set_reg_raw(key, value_name, registry_type, raw_value);
-        crate::core::registry_helpers::close_key(key);
-        result.map_err(|error| format!("Failed to restore {value_name} at {full_key}: {error:?}"))
-    }
-}
-
-fn delete_value(full_key: &str, value_name: &str) -> Result<(), String> {
-    let (hive, path) = split_hive(full_key);
-    let hive = match hive {
-        "HKLM" => windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-        "HKCU" => windows::Win32::System::Registry::HKEY_CURRENT_USER,
-        _ => return Err(format!("Unknown registry hive in {full_key}")),
-    };
-    use windows::core::HSTRING;
-    use windows::Win32::System::Registry::*;
-    unsafe {
-        let mut key = std::mem::zeroed();
-        if RegOpenKeyExW(
-            hive,
-            &HSTRING::from(&path),
-            Some(0),
-            KEY_SET_VALUE,
-            &mut key,
-        )
-        .is_err()
-        {
-            return Ok(());
-        }
-        let result = RegDeleteValueW(key, &HSTRING::from(value_name));
-        let _ = RegCloseKey(key);
-        if result.is_err() {
-            return Err(format!(
-                "Failed to delete {value_name} at {full_key}: {result:?}"
-            ));
-        }
-        Ok(())
-    }
-}
-
-fn delete_key(full_key: &str) -> Result<(), String> {
-    let (hive, path) = split_hive(full_key);
-    let hive = match hive {
-        "HKLM" => windows::Win32::System::Registry::HKEY_LOCAL_MACHINE,
-        "HKCU" => windows::Win32::System::Registry::HKEY_CURRENT_USER,
-        _ => return Err(format!("Unknown registry hive in {full_key}")),
-    };
-    use crate::core::registry_helpers;
-    use windows::Win32::System::Registry::RegCloseKey;
-    unsafe {
-        if let Some(key) = registry_helpers::open_key_read(hive, &path) {
-            let _ = RegCloseKey(key);
-            registry_helpers::delete_key_recursive(hive, &path)
-                .map_err(|error| format!("Failed to delete empty key {full_key}: {error}"))?;
-        }
-    }
-    Ok(())
+    ops::set_dword(full_key, value_name, value)
 }
 
 fn split_hive(full_key: &str) -> (&str, String) {
-    full_key
-        .split_once('\\')
-        .map_or((full_key, String::new()), |(hive, path)| {
-            (hive, path.into())
-        })
+    ops::split_hive(full_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// "extreme" and "advanced" are legacy labels that the operation kernel
+    /// maps to its most severe level through the catch-all in
+    /// `system_tweak_operation::risk`. Pinning the vocabulary makes a typo fail
+    /// here instead of silently becoming Critical.
+    const RISK_LABELS: [&str; 5] = ["low", "medium", "high", "extreme", "advanced"];
+
+    #[test]
+    fn listed_tweaks_have_unique_described_ids() {
+        let tweaks = list();
+        assert!(!tweaks.is_empty(), "the tweak list must not be empty");
+        let mut seen = HashSet::new();
+        for tweak in &tweaks {
+            assert!(
+                !tweak.id.is_empty()
+                    && tweak
+                        .id
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "malformed tweak id {:?}",
+                tweak.id
+            );
+            assert!(!tweak.name.trim().is_empty(), "{} has no name", tweak.id);
+            assert!(
+                !tweak.description.trim().is_empty(),
+                "{} has no description",
+                tweak.id
+            );
+            assert!(
+                RISK_LABELS.contains(&tweak.risk.as_str()),
+                "{} has unknown risk {:?}",
+                tweak.id,
+                tweak.risk
+            );
+            assert!(seen.insert(tweak.id.clone()), "duplicate id {}", tweak.id);
+        }
+    }
 }

@@ -747,8 +747,15 @@ pub fn store_elevation_handoff(
     ticket: &ElevationTicket,
     session: &BrokerSession,
 ) -> Result<(), OperationError> {
-    let directory = plan_directory()?;
-    prepare_plan_directory(&directory)?;
+    store_elevation_handoff_at(&plan_directory()?, ticket, session)
+}
+
+fn store_elevation_handoff_at(
+    directory: &Path,
+    ticket: &ElevationTicket,
+    session: &BrokerSession,
+) -> Result<(), OperationError> {
+    prepare_plan_directory(directory)?;
     let payload = ElevationHandoff {
         ticket: ticket.clone(),
         endpoint: session.endpoint.clone(),
@@ -759,7 +766,7 @@ pub fn store_elevation_handoff(
         expires_at: session.expires_at.clone(),
     };
     let bytes = serde_json::to_vec(&payload).map_err(|error| validation(error.to_string()))?;
-    let path = handoff_path(&directory, &ticket.operation_id)?;
+    let path = handoff_path(directory, &ticket.operation_id)?;
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
@@ -774,9 +781,39 @@ pub fn store_elevation_handoff(
 pub fn load_elevation_handoff(
     operation_id: &str,
 ) -> Result<(ElevationTicket, BrokerSession), OperationError> {
-    let directory = plan_directory()?;
-    validate_plan_directory(&directory)?;
-    let bytes = std::fs::read(handoff_path(&directory, operation_id)?)
+    load_elevation_handoff_at(&plan_directory()?, operation_id)
+}
+
+/// The handoff file is plain JSON, so beyond the ticket binding it is checked
+/// for internal consistency: the session must belong to the same confirmed
+/// plan as the ticket, and the endpoint must be a local WinOptimizer pipe, never
+/// a remote or foreign pipe name.
+fn validate_handoff_session(payload: &ElevationHandoff) -> Result<(), OperationError> {
+    let ticket = &payload.ticket;
+    if payload.nonce != ticket.nonce
+        || payload.plan_operation_id != ticket.plan_operation_id
+        || payload.plan_digest != ticket.plan_digest
+    {
+        return Err(validation(
+            "elevation handoff session does not match its ticket",
+        ));
+    }
+    let endpoint_is_local = payload
+        .endpoint
+        .strip_prefix(crate::core::elevation_broker::ENDPOINT_PREFIX)
+        .is_some_and(|suffix| uuid::Uuid::parse_str(suffix).is_ok());
+    if !endpoint_is_local || uuid::Uuid::parse_str(&payload.session_id).is_err() {
+        return Err(validation("elevation handoff endpoint is not trusted"));
+    }
+    Ok(())
+}
+
+fn load_elevation_handoff_at(
+    directory: &Path,
+    operation_id: &str,
+) -> Result<(ElevationTicket, BrokerSession), OperationError> {
+    validate_plan_directory(directory)?;
+    let bytes = std::fs::read(handoff_path(directory, operation_id)?)
         .map_err(|error| validation(format!("elevation handoff is unavailable: {error}")))?;
     let payload: ElevationHandoff =
         serde_json::from_slice(&bytes).map_err(|_| validation("elevation handoff is invalid"))?;
@@ -785,6 +822,7 @@ pub fn load_elevation_handoff(
             "elevation handoff does not match the resume operation",
         ));
     }
+    validate_handoff_session(&payload)?;
     let session = BrokerSession::from_parts(
         payload.endpoint,
         payload.session_id,
@@ -1035,5 +1073,144 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         prepare_plan_directory(directory.path()).unwrap();
         validate_plan_directory(directory.path()).unwrap();
+    }
+
+    fn handoff_fixture(directory: &Path) -> (ElevationTicket, BrokerSession) {
+        let plan = synthetic_operation_contract().unwrap().plan;
+        let ticket = store_confirmed_plan_at(&plan, directory, Utc::now()).unwrap();
+        let session = BrokerSession::create(
+            &plan,
+            &ticket.plan_operation_id,
+            &ticket.nonce,
+            &ticket.plan_digest,
+        )
+        .unwrap();
+        (ticket, session)
+    }
+
+    fn edit_handoff(
+        directory: &Path,
+        operation_id: &str,
+        edit: impl FnOnce(&mut serde_json::Value),
+    ) {
+        let path = handoff_path(directory, operation_id).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        edit(&mut value);
+        std::fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn elevation_handoff_round_trip_returns_the_stored_ticket_and_session() {
+        let directory = tempfile::tempdir().unwrap();
+        let (ticket, session) = handoff_fixture(directory.path());
+        store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+
+        let (loaded_ticket, loaded_session) =
+            load_elevation_handoff_at(directory.path(), &ticket.operation_id).unwrap();
+
+        assert_eq!(loaded_ticket, ticket);
+        assert_eq!(loaded_session.endpoint, session.endpoint);
+        assert_eq!(loaded_session.session_id, session.session_id);
+        assert_eq!(loaded_session.nonce, session.nonce);
+        assert_eq!(loaded_session.operation_id, session.operation_id);
+        assert_eq!(loaded_session.plan_digest, session.plan_digest);
+    }
+
+    #[test]
+    fn elevation_handoff_is_unavailable_when_missing_or_unreadable() {
+        let directory = tempfile::tempdir().unwrap();
+        let (ticket, session) = handoff_fixture(directory.path());
+
+        assert!(load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err());
+
+        store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+        let path = handoff_path(directory.path(), &ticket.operation_id).unwrap();
+        std::fs::write(&path, b"{ not json").unwrap();
+        assert!(load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err());
+        std::fs::write(&path, b"").unwrap();
+        assert!(load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err());
+    }
+
+    #[test]
+    fn elevation_handoff_rejects_an_identifier_that_is_not_a_uuid() {
+        let directory = tempfile::tempdir().unwrap();
+        prepare_plan_directory(directory.path()).unwrap();
+        for id in ["", "..\\..\\evil", "../evil", "not-a-uuid"] {
+            assert!(
+                load_elevation_handoff_at(directory.path(), id).is_err(),
+                "{id:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn elevation_handoff_cannot_be_replayed_under_another_operation_id() {
+        let directory = tempfile::tempdir().unwrap();
+        let (ticket, session) = handoff_fixture(directory.path());
+        store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+
+        let other_id = uuid::Uuid::new_v4().to_string();
+        std::fs::copy(
+            handoff_path(directory.path(), &ticket.operation_id).unwrap(),
+            handoff_path(directory.path(), &other_id).unwrap(),
+        )
+        .unwrap();
+
+        assert!(load_elevation_handoff_at(directory.path(), &other_id).is_err());
+    }
+
+    #[test]
+    fn tampered_session_fields_that_disagree_with_the_ticket_are_rejected() {
+        for field in ["nonce", "plan_operation_id", "plan_digest"] {
+            let directory = tempfile::tempdir().unwrap();
+            let (ticket, session) = handoff_fixture(directory.path());
+            store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+            edit_handoff(directory.path(), &ticket.operation_id, |value| {
+                value[field] = serde_json::Value::String("tampered".into());
+            });
+
+            assert!(
+                load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err(),
+                "tampered {field} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn untrusted_broker_endpoints_are_rejected() {
+        let valid_suffix = uuid::Uuid::new_v4();
+        let endpoints = [
+            format!(r"\\remote-host\pipe\WinOptimizer-{valid_suffix}"),
+            format!(r"\\.\pipe\SomethingElse-{valid_suffix}"),
+            r"\\.\pipe\WinOptimizer-not-a-uuid".to_string(),
+            format!(r"C:\Users\Public\WinOptimizer-{valid_suffix}"),
+            String::new(),
+        ];
+        for endpoint in endpoints {
+            let directory = tempfile::tempdir().unwrap();
+            let (ticket, session) = handoff_fixture(directory.path());
+            store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+            edit_handoff(directory.path(), &ticket.operation_id, |value| {
+                value["endpoint"] = serde_json::Value::String(endpoint.clone());
+            });
+
+            assert!(
+                load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err(),
+                "endpoint {endpoint:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_id_that_is_not_a_uuid_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let (ticket, session) = handoff_fixture(directory.path());
+        store_elevation_handoff_at(directory.path(), &ticket, &session).unwrap();
+        edit_handoff(directory.path(), &ticket.operation_id, |value| {
+            value["session_id"] = serde_json::Value::String("session".into());
+        });
+
+        assert!(load_elevation_handoff_at(directory.path(), &ticket.operation_id).is_err());
     }
 }

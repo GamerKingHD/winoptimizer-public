@@ -1,5 +1,16 @@
 use crate::*;
 
+/// Maps a blocking task that panicked or was cancelled to the shared internal
+/// error returned by every startup command.
+fn internal_task_error(error: impl std::fmt::Display) -> core::operation::OperationError {
+    core::operation::OperationError {
+        code: core::operation::OperationErrorCode::InternalError,
+        message: error.to_string(),
+        target_id: None,
+        retryable: true,
+    }
+}
+
 // ============================================================
 // Tauri Commands - Startup Manager
 // ============================================================
@@ -22,12 +33,7 @@ pub(crate) async fn create_startup_program_plan(
         core::startup_operation::create_plan(&program)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 #[tauri::command]
@@ -49,12 +55,7 @@ pub(crate) async fn create_startup_program_enable_plan(
         core::startup_operation::create_enable_plan(&program)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 #[tauri::command]
@@ -438,12 +439,7 @@ pub(crate) async fn create_service_plan(
         core::service_operation::create_plan(&service, action)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 #[tauri::command]
@@ -459,12 +455,7 @@ pub(crate) async fn create_services_manual_plan(
         core::services_bulk_operation::create_manual_plan(&services)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 #[tauri::command]
@@ -475,12 +466,7 @@ pub(crate) async fn create_services_guidance_plan(
         core::services_guidance_operation::create_plan(&targets)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 pub(crate) fn execute_service_confirmed_with_journal(
@@ -899,12 +885,7 @@ pub(crate) async fn create_scheduled_task_plan(
         core::scheduled_task_operation::create_plan(&task, enabled)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 #[tauri::command]
@@ -921,12 +902,7 @@ pub(crate) async fn create_scheduled_tasks_guidance_plan(
         core::scheduled_tasks_guidance_operation::create_plan(&targets, &tasks)
     })
     .await
-    .map_err(|error| core::operation::OperationError {
-        code: core::operation::OperationErrorCode::InternalError,
-        message: error.to_string(),
-        target_id: None,
-        retryable: true,
-    })?
+    .map_err(internal_task_error)?
 }
 
 pub(crate) fn execute_scheduled_task_confirmed_with_journal(
@@ -1232,18 +1208,8 @@ pub(crate) async fn scan_scheduled_tasks(
     let adapter = _state.adapters.tasks.clone();
     let tasks = tauri::async_runtime::spawn_blocking(move || adapter.list())
         .await
-        .map_err(|error| core::operation::OperationError {
-            code: core::operation::OperationErrorCode::InternalError,
-            message: error.to_string(),
-            target_id: None,
-            retryable: true,
-        })?
-        .map_err(|error| core::operation::OperationError {
-            code: core::operation::OperationErrorCode::InternalError,
-            message: error.to_string(),
-            target_id: None,
-            retryable: true,
-        })?
+        .map_err(internal_task_error)?
+        .map_err(internal_task_error)?
         .into_iter()
         .map(Into::into)
         .collect();

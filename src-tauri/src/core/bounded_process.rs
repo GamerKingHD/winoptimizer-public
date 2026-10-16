@@ -173,7 +173,9 @@ fn windows_run_bounded(
         )?;
     }
 
-    let mut command = Command::new(program);
+    let mut command = Command::new(crate::core::command_helpers::resolve_system_program(
+        program,
+    ));
     command
         .args(args)
         .stdin(Stdio::null())

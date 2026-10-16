@@ -367,7 +367,6 @@ async function analyzeDisk() {
   scanPhase.value = 'starting'
   scanMessage.value = 'Starting scan...'
   guiScanElapsedMs.value = null
-  duplicateScanElapsedMs.value = null
   feedback.value = null
   const unlisten = await onProgress((event: ProgressEvent) => {
     if (event.operation === 'disk_usage_scan') {

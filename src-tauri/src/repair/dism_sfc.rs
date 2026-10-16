@@ -9,7 +9,9 @@
 
 use windows::core::{s, HRESULT, HSTRING};
 use windows::Win32::Foundation::HMODULE;
-use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows::Win32::System::LibraryLoader::{
+    GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
+};
 
 use crate::core::command_helpers::create_command;
 
@@ -183,9 +185,15 @@ pub fn dism_restore_health() -> Result<(), String> {
 }
 
 fn load_dism_dll() -> Result<HMODULE, String> {
+    // Restrict the search to the system directory so a DismAPI.dll planted in
+    // the application directory or on PATH cannot be loaded instead.
     unsafe {
-        LoadLibraryW(&HSTRING::from("DismAPI.dll"))
-            .map_err(|e| format!("Failed to load DismAPI.dll: {:?}", e))
+        LoadLibraryExW(
+            &HSTRING::from("DismAPI.dll"),
+            None,
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+        .map_err(|e| format!("Failed to load DismAPI.dll: {:?}", e))
     }
 }
 
@@ -285,5 +293,12 @@ mod tests {
         assert_eq!(DismImageHealth::Healthy as u32, 0);
         assert_eq!(DismImageHealth::Repairable as u32, 1);
         assert_eq!(DismImageHealth::NonRepairable as u32, 2);
+    }
+
+    #[test]
+    fn dism_api_loads_from_the_system_directory_and_exports_every_entry_point() {
+        let dll =
+            load_dism_dll().expect("DismAPI.dll must load with a system-directory-only search");
+        assert!(resolve_dism_functions(dll).is_ok());
     }
 }

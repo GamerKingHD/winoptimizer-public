@@ -1292,6 +1292,14 @@ fn execute_target(
             )
         }
     };
+    if current.is_dir() {
+        return error_outcome(
+            target,
+            OperationErrorCode::TargetProtected,
+            "cleanup removes files only and refuses directory targets",
+            ExecutionStatus::Skipped,
+        );
+    }
     if path_or_ancestor_is_reparse(&path) {
         return error_outcome(
             target,
@@ -2668,5 +2676,45 @@ mod tests {
             );
             assert!(path.exists(), "{} must not be deleted", path.display());
         }
+    }
+
+    /// An approved root passes the prefix check (starts_with is true for the
+    /// root itself), so execution must refuse directory targets explicitly
+    /// instead of relying on the OS refusing to open a directory for deletion.
+    #[test]
+    fn execution_never_deletes_an_approved_root_directory() {
+        use crate::core::safe_paths::SafePaths;
+
+        let sandbox = tempdir().unwrap();
+        let environment = sandbox_environment(&sandbox);
+        std::fs::create_dir_all(&environment.user_profile).unwrap();
+        std::fs::create_dir_all(&environment.temp).unwrap();
+        let safe_paths = SafePaths::from_environment(&environment);
+
+        let root = environment.temp.clone();
+        let canary = root.join("canary.tmp");
+        std::fs::write(&canary, b"canary").unwrap();
+
+        let target = scanned_target(&root, "temp", false);
+        let scan = scan_with(vec![target.clone()]);
+        let planned = create_plan_with_mode(
+            &scan,
+            std::slice::from_ref(&target.target_id),
+            CleanupDeletionMode::Permanent,
+        )
+        .ok()
+        .and_then(|plan| plan.targets.into_iter().next());
+
+        if let Some(planned) = planned {
+            let outcome = execute_target(&planned, CleanupDeletionMode::Permanent, &safe_paths);
+            assert_eq!(
+                outcome.error.as_ref().map(|error| error.code),
+                Some(OperationErrorCode::TargetProtected),
+                "directory targets must be refused explicitly: {outcome:?}"
+            );
+        }
+
+        assert!(root.is_dir(), "approved root directory must survive");
+        assert!(canary.exists(), "files inside the root must survive");
     }
 }
