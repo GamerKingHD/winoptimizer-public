@@ -731,6 +731,7 @@ mod runtime_context_tests {
     use super::create_app_state_with_runtime;
     use rusqlite::params;
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn fixture_cleanup_scan_uses_only_fixture_filesystem() {
@@ -761,10 +762,45 @@ mod runtime_context_tests {
     #[test]
     fn fixture_app_state_keeps_durable_stores_under_fixture_root() {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("winoptimizer-fixture");
-        let source = directory.path().join("source.txt");
+        assert_fixture_stores_under(directory.path());
+    }
+
+    /// The same check with the base directory given by its 8.3 short name,
+    /// as GitHub's Windows runners report their temp directory.
+    #[cfg(windows)]
+    #[test]
+    fn fixture_app_state_accepts_a_short_name_root() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows::core::PCWSTR;
+        use windows::Win32::Storage::FileSystem::GetShortPathNameW;
+
+        let directory = tempfile::tempdir().unwrap();
+        let long_base = directory.path().join("winoptimizer long base directory");
+        fs::create_dir_all(&long_base).unwrap();
+        let mut wide: Vec<u16> = long_base.as_os_str().encode_wide().collect();
+        wide.push(0);
+        let mut buffer = vec![0u16; 1024];
+        let length =
+            unsafe { GetShortPathNameW(PCWSTR(wide.as_ptr()), Some(&mut buffer)) } as usize;
+        let short_base = std::path::PathBuf::from(String::from_utf16_lossy(&buffer[..length]));
+        if length == 0 || length > buffer.len() || short_base == long_base {
+            eprintln!("8.3 short names are not available on this volume; skipping");
+            return;
+        }
+        assert_fixture_stores_under(&short_base);
+    }
+
+    fn assert_fixture_stores_under(base: &Path) {
+        let root = base.join("winoptimizer-fixture");
+        let source = base.join("source.txt");
         fs::write(&source, b"fixture backup").unwrap();
 
+        // The runtime canonicalizes the fixture root, so a root given by its
+        // 8.3 short name (GitHub's Windows runners report RUNNER~1) comes back
+        // in long form.  Compare every store against the root as the runtime
+        // spells it.
+        fs::create_dir_all(&root).unwrap();
+        let root = RuntimeContext::fixture(&root).data_root().to_path_buf();
         let legacy_path = root.join("undo/undo.db");
         fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
         drop(UndoLog::open_at(&legacy_path).unwrap());

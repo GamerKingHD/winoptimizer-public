@@ -292,18 +292,43 @@ mod tests {
         cancel
     }
 
-    /// A parent Node process that spawns a descendant Node process which writes
-    /// `marker` after a delay, then the parent idles. The descendant is spawned
-    /// detached so it survives the parent being terminated unless a Job Object
-    /// owns the tree; if the Job Object owns it, terminating the job kills both
-    /// and the marker never appears.
+    /// A parent Node process that spawns a descendant Node process which
+    /// writes `started` as soon as it is running and `marker` after a delay,
+    /// then the parent idles. The descendant is spawned detached so it
+    /// survives the parent being terminated unless a Job Object owns the
+    /// tree; if the Job Object owns it, terminating the job kills both and the
+    /// marker never appears.
     #[cfg(windows)]
-    fn descendant_marker_command(marker: &std::path::Path) -> (&'static str, Vec<String>) {
+    fn descendant_marker_command(
+        marker: &std::path::Path,
+        started: &std::path::Path,
+    ) -> (&'static str, Vec<String>) {
         let marker_path = marker.to_string_lossy().to_string();
+        let started_path = started.to_string_lossy().to_string();
         let parent = format!(
-            "const {{spawn}}=require('child_process');spawn(process.execPath,['-e','setTimeout(()=>require(\"fs\").writeFileSync(process.argv[1],\"leaked\"),4000)',{marker_path:?}],{{stdio:'ignore',detached:true,windowsHide:true}});setTimeout(()=>{{}},30000);"
+            "const {{spawn}}=require('child_process');spawn(process.execPath,['-e','const fs=require(\"fs\");fs.writeFileSync(process.argv[2],\"started\");setTimeout(()=>fs.writeFileSync(process.argv[1],\"leaked\"),4000)',{marker_path:?},{started_path:?}],{{stdio:'ignore',detached:true,windowsHide:true}});setTimeout(()=>{{}},30000);"
         );
         ("node", vec!["-e".into(), parent])
+    }
+
+    /// Raises the returned cancel flag once `started` exists, so a test only
+    /// cancels after the descendant is really running. A fixed delay is not
+    /// enough: on a loaded runner Node can take longer to start than the
+    /// delay, the parent is killed before it spawns anything, and the test
+    /// would observe no descendant at all.
+    #[cfg(windows)]
+    fn cancel_when_started(started: &std::path::Path) -> Arc<AtomicBool> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let trigger = Arc::clone(&cancel);
+        let started = started.to_path_buf();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(25);
+            while !started.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            trigger.store(true, Ordering::Relaxed);
+        });
+        cancel
     }
 
     #[cfg(windows)]
@@ -381,17 +406,16 @@ mod tests {
         let dir = marker_dir("contained");
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("descendant-leaked.txt");
-        let (program, args) = descendant_marker_command(&marker);
+        let started = dir.join("descendant-started.txt");
+        let (program, args) = descendant_marker_command(&marker, &started);
         let output = run_bounded(
             program,
             &args,
-            &RunControl::new(
-                cancel_after(Duration::from_millis(300)),
-                Duration::from_secs(30),
-            ),
+            &RunControl::new(cancel_when_started(&started), Duration::from_secs(30)),
         )
         .unwrap();
         assert!(output.cancelled);
+        assert!(started.exists(), "the descendant never started");
         assert_eq!(output.containment, TreeContainment::Contained);
         // Give the descendant well past its 4s write delay to surface if it
         // survived cancellation.
@@ -412,18 +436,17 @@ mod tests {
         let dir = marker_dir("unavailable");
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("descendant-leaked.txt");
-        let (program, args) = descendant_marker_command(&marker);
+        let started = dir.join("descendant-started.txt");
+        let (program, args) = descendant_marker_command(&marker, &started);
         let output = run_bounded_with_assignment(
             program,
             &args,
-            &RunControl::new(
-                cancel_after(Duration::from_millis(300)),
-                Duration::from_secs(30),
-            ),
+            &RunControl::new(cancel_when_started(&started), Duration::from_secs(30)),
             true,
         )
         .unwrap();
         assert!(output.cancelled);
+        assert!(started.exists(), "the descendant never started");
         assert_eq!(output.containment, TreeContainment::Unavailable);
         assert_eq!(output.termination(), ProcessTermination::Cancelled);
         // The direct child is gone. The descendant may survive; we deliberately

@@ -71,5 +71,8 @@ windows-result = "0.3"
 blake3 = { version = "1.5", features = ["no_neon"] }
 
 [dev-dependencies]
+# blake3 and sha2 are already in the dependency tree of both editions.
+blake3 = { version = "1.5", features = ["rayon"] }
 mockall = "0.13"
+sha2 = "0.10"
 tempfile = "3"

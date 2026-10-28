@@ -22,7 +22,6 @@ use windows::Win32::Storage::FileSystem::{
     FILE_GENERIC_READ, FILE_ID_BOTH_DIR_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     OPEN_EXISTING,
 };
-
 const DIRECTORY_BUFFER_SIZE: usize = 128 * 1024;
 
 #[derive(Debug, Default)]
@@ -36,14 +35,13 @@ struct Counters {
 }
 
 #[derive(Debug)]
-struct DirectoryEntry {
-    name: String,
-    file_id: u64,
-    logical_size: u64,
-    allocated_size: u64,
-    attributes: u32,
+pub(crate) struct DirectoryEntry {
+    pub(crate) name: String,
+    pub(crate) file_id: u64,
+    pub(crate) logical_size: u64,
+    pub(crate) allocated_size: u64,
+    pub(crate) attributes: u32,
 }
-
 pub(crate) fn scan(
     root: &Path,
     max_depth: u32,
@@ -224,11 +222,19 @@ fn scan_directory(
 }
 
 fn enumerate_directory(path: &Path) -> Result<Vec<DirectoryEntry>, String> {
+    let handle = open_directory(path)?;
+    let result = enumerate_with_handle(handle);
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result
+}
+fn open_directory(path: &Path) -> Result<windows::Win32::Foundation::HANDLE, String> {
     use std::os::windows::ffi::OsStrExt;
 
     let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
     wide.push(0);
-    let handle = unsafe {
+    unsafe {
         CreateFileW(
             &HSTRING::from_wide(&wide[..wide.len() - 1]),
             FILE_GENERIC_READ.0,
@@ -239,13 +245,7 @@ fn enumerate_directory(path: &Path) -> Result<Vec<DirectoryEntry>, String> {
             None,
         )
     }
-    .map_err(|error| format!("unable to open directory {}: {}", path.display(), error))?;
-
-    let result = enumerate_with_handle(handle);
-    unsafe {
-        let _ = CloseHandle(handle);
-    }
-    result
+    .map_err(|error| format!("unable to open directory {}: {}", path.display(), error))
 }
 
 fn enumerate_with_handle(
@@ -333,7 +333,6 @@ fn enumerate_with_handle(
 mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::Arc;
-
     #[test]
     fn directory_batch_buffer_is_bounded() {
         assert_eq!(super::DIRECTORY_BUFFER_SIZE, 128 * 1024);

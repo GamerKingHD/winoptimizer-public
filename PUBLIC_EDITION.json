@@ -1,16 +1,16 @@
 {
   "edition": "community",
   "generatedFrom": "private",
-  "generatedAt": "2026-10-16T13:45:34.434Z",
-  "sourceCommit": "da6975a68ee5fe38890c81009b7df5340a5d7b1d",
-  "sourceTreeHash": "319328b7a55018dd7bb6a09ec7ae36e76c8bcd86",
+  "generatedAt": "2026-10-28T13:05:42.163Z",
+  "sourceCommit": "4c60dd0858260ca78fe80ed3ac2f82b057403097",
+  "sourceTreeHash": "fbb91fd5f75a939ee78a264cba5637acbcda4d2c",
   "sourceDirty": false,
   "version": "1.0.0",
   "files": 552,
   "counts": {
     "copied": 546,
     "overlay": 0,
-    "regionStripped": 20,
+    "regionStripped": 21,
     "generated": 6
   },
   "note": "Generated tree. Do not develop here. Edit the private repository and re-export."

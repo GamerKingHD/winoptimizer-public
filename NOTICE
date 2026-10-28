@@ -46,7 +46,7 @@ Build tooling (not redistributed)
     Microsoft Reciprocal License (MS-RL) and is downloaded at build time.
 
 Vendored sources
-  - tweaks-ideas/christitus is a vendored copy of ChrisTitusTech/winutil,
+  - third_party/winutil is a vendored copy of ChrisTitusTech/winutil,
     Copyright (c) 2022 CT Tech Group LLC, licensed under the MIT License.
     Its upstream LICENSE is retained alongside the vendored sources.
 

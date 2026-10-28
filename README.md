@@ -47,7 +47,7 @@ npm test                               # vitest
 - `src/` — Vue 3 + TypeScript frontend
 - `src-tauri/` — Rust application (Tauri v2)
 - `scripts/` — boundary audit and artifact verification
-- `tweaks-ideas/` — vendored third-party tweak catalogue (MIT)
+- `third_party/` — vendored third-party tweak catalogue (MIT)
 
 ## Licensing
 
